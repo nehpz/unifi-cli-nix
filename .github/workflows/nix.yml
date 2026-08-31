@@ -1,0 +1,52 @@
+name: Nix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR runs still supersede their own stale runs (grouped by PR number).
+# Push-to-main runs get a unique run_id group so a publish can never be
+# cancelled by a later push — workflow-level concurrency also covers the
+# reusable publisher this job calls.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # GitHub-hosted only; this fork has no dedicated builders.
+    # Linux-only would not prove the Darwin output.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@v3.21.9
+
+      - name: nix flake check
+        run: nix flake check -L
+
+      - name: nix build
+        run: nix build .#default -L
+
+      - name: Smoke test
+        # A build that produces a non-running binary is not proof.
+        run: nix run .#default -- --version
+
+  publish:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # id-token: write is required for FlakeHub OIDC through a reusable workflow.
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/flakehub.yml

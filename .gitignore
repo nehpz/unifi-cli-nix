@@ -1,2 +1,6 @@
 /target
 .claude/investigations/
+/result
+/result-*
+.direnv/
+.idea/
