@@ -4,8 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  schedule:
-    - cron: '51 4 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -17,12 +15,3 @@ jobs:
     uses: rvben/clispec/.github/workflows/conformance.yml@10181da8fb10638689b29ec9a0fc6b1973cac9c4 # v0.3.1
     with:
       binary: target/debug/unifi
-
-  published-artifacts:
-    name: Published artifacts
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: rvben/clispec/.github/workflows/published-artifacts.yml@10181da8fb10638689b29ec9a0fc6b1973cac9c4 # v0.3.1
-    with:
-      crates: "unifi-cli"
-      pypi: unifi-cli
-      homebrew-formula: unifi-cli

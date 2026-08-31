@@ -1,0 +1,55 @@
+name: Publish to FlakeHub
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: >
+          Commit to publish. Callers that just pushed with GITHUB_TOKEN must
+          pass the new SHA; github.sha is still the pre-push commit.
+        type: string
+        required: false
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit SHA to publish (defaults to the triggering commit)
+        type: string
+        required: false
+
+# Least privilege for FlakeHub OIDC (id-token) plus checkout.
+permissions:
+  id-token: write
+  contents: read
+
+# Serialize publishes so a main-push publish and an auto-update publish cannot race.
+concurrency:
+  group: flakehub-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Rolling commit count comes from GitHub GraphQL, not the local clone.
+          # Prefer the caller-supplied SHA (auto-update pushes, then publishes
+          # in the same run). Empty on workflow_dispatch / nix.yml → github.sha.
+          ref: ${{ inputs.sha || github.sha }}
+
+      - uses: DeterminateSystems/determinate-nix-action@v3.21.9
+
+      - uses: DeterminateSystems/flakehub-push@v6
+        with:
+          # Explicit name: FlakeHub org `rzp` is already publishable from
+          # `nehpz/*` (verified via rzp/den-lsp).
+          name: rzp/unifi-cli-nix
+          visibility: public
+          include-output-paths: true
+          # Rolling only (0.1.<commit-count>+rev-<sha>). This fork has no
+          # tag-cutting process, and upstream tags point at commits with no flake.nix.
+          rolling: true
