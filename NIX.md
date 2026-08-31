@@ -114,7 +114,7 @@ only published artifact is the FlakeHub flake.
 
 ## One-time setup
 
-- GitHub disables Actions on new forks, so enable Actions once in the repo's Actions tab.
+- Actions are already enabled on this fork; workflows register on first use. `flakehub.yml` and `auto-update.yml` only register once they land on the default branch.
 - The published name is set explicitly in `.github/workflows/flakehub.yml` as `rzp/unifi-cli-nix`. The FlakeHub org `rzp` is already linked to this GitHub account (same setup as `rzp/den-lsp`), so no additional FlakeHub configuration is needed.
 - Nothing else (no secrets, no tokens).
 - `auto-update.yml` promotes to `main` with `GITHUB_TOKEN`, so enabling branch protection on `main` would require swapping in a PAT or GitHub App token.
