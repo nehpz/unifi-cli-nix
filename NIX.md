@@ -11,6 +11,12 @@ nix run "https://flakehub.com/f/rzp/unifi-cli-nix/*.tar.gz" -- --version
 nix run github:nehpz/unifi-cli-nix -- --version
 ```
 
+Install into your profile (`fh add` edits a `flake.nix`, it does not install):
+
+```bash
+nix profile add "https://flakehub.com/f/rzp/unifi-cli-nix/*.tar.gz"
+```
+
 ## Add as a flake input
 
 FlakeHub is the primary form. `*` means latest:

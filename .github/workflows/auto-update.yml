@@ -79,6 +79,9 @@ jobs:
           git commit --no-edit
 
       - uses: DeterminateSystems/determinate-nix-action@v3.21.9
+        # Only the weekly lock bump needs Nix in this job; the verify matrix
+        # installs its own. Daily merge-only runs skip the install/teardown.
+        if: github.event.schedule != '17 5 * * *'
 
       - name: Update flake.lock
         # Skip on the daily cron: nixpkgs-unstable moves daily and daily lock
