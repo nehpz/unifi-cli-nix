@@ -1,0 +1,16 @@
+
+## Nix / FlakeHub
+
+This fork adds Nix flake packaging and publishes to FlakeHub.
+
+The preceding "Releasing" runbook, `docs/releases.md`, and the `make release-*` targets are upstream-only and inert in this fork; this fork's only published artifact is the FlakeHub flake.
+
+```bash
+nix run "https://flakehub.com/f/rzp/unifi-cli-nix/*.tar.gz" -- --version
+```
+
+```nix
+inputs.unifi-cli.url = "https://flakehub.com/f/rzp/unifi-cli-nix/*.tar.gz";
+```
+
+See [NIX.md](NIX.md) for NixOS, home-manager, overlays, and maintainer notes.

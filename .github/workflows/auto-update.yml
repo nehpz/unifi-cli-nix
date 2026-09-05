@@ -45,38 +45,65 @@ jobs:
             echo "upstream/main is already an ancestor of HEAD; skip merge"
             exit 0
           fi
-          # We deleted release.yml and upd.yml deliberately; upstream keeps
-          # editing them, so every sync that touches either is a modify/delete
-          # conflict with a single correct resolution (keep them gone).
-          # Auto-resolve ONLY a non-empty subset of those two paths. Never
-          # -X ours or || true: that would silently discard real upstream
-          # changes. Any other unmerged path (including those two plus
-          # anything else) aborts for a human.
-          if git merge --no-edit upstream/main; then
-            echo "merged upstream/main"
-            exit 0
+          ours="$(git rev-parse HEAD)"
+          # Ownership decides everything here, and nothing is left for a human.
+          #
+          # .github/ is fork-owned: GITHUB_TOKEN can never push a workflow-file
+          # change (there is no grantable `workflows` permission), so an
+          # upstream edit under .github/workflows/ would make the staging push
+          # die with "refusing to allow a GitHub App to create or update
+          # workflow ...", and upstream's release/dependency automation is
+          # fork-hostile anyway. It is restored from our tree after the merge.
+          #
+          # README.md and .gitignore are shared: upstream owns the file, the
+          # fork appends a block. They are regenerated as upstream's version
+          # plus .github/fork-overlay/*.append, so upstream text always lands
+          # verbatim and the fork's block cannot be lost or conflict.
+          #
+          # Everything else is upstream's. The fork carries no changes there,
+          # so upstream wins without discrimination, deletions included.
+          if ! git merge --no-edit upstream/main; then
+            # -z, or core.quotePath mangles any path with a quote, backslash,
+            # newline or non-ASCII byte into its display form and the
+            # resolution below would target a filename that does not exist.
+            mapfile -d '' -t unmerged < <(git diff --name-only -z --diff-filter=U)
+            if [ "${#unmerged[@]}" -eq 0 ]; then
+              echo "merge failed with no unmerged paths" >&2
+              git merge --abort
+              exit 1
+            fi
+            for path in "${unmerged[@]}"; do
+              case "$path" in
+                .github/*|README.md|.gitignore)
+                  # Resolve to ours only to unblock the commit; both are
+                  # overwritten by the fork-owned rebuild below.
+                  echo "fork-owned, rebuilt below: $path"
+                  git checkout --ours -- "$path" 2>/dev/null || true
+                  git add -- "$path" ;;
+                *)
+                  if git cat-file -e "upstream/main:$path" 2>/dev/null; then
+                    echo "taking upstream version: $path"
+                    git checkout upstream/main -- "$path"
+                  else
+                    echo "taking upstream deletion: $path"
+                    git rm -qf -- "$path"
+                  fi ;;
+              esac
+            done
           fi
-          mapfile -t unmerged < <(git diff --name-only --diff-filter=U)
-          unexpected=0
-          if [ "${#unmerged[@]}" -eq 0 ]; then
-            unexpected=1
-          fi
-          for path in "${unmerged[@]}"; do
-            case "$path" in
-              .github/workflows/release.yml|.github/workflows/upd.yml) ;;
-              *) unexpected=1 ;;
-            esac
+          git rm -rqf --ignore-unmatch -- .github
+          git checkout "$ours" -- .github
+          for spec in README.md:readme.append .gitignore:gitignore.append; do
+            path="${spec%%:*}"
+            git show "upstream/main:$path" > "$path"
+            cat ".github/fork-overlay/${spec##*:}" >> "$path"
+            git add -- "$path"
           done
-          if [ "$unexpected" -ne 0 ]; then
-            echo "merge conflict is not confined to deleted fork-hostile workflows:" >&2
-            printf '%s\n' "${unmerged[@]}" >&2
-            git merge --abort
-            exit 1
+          if [ -f .git/MERGE_HEAD ]; then
+            git commit --no-edit
+          elif ! git diff --cached --quiet; then
+            git commit --amend --no-edit
           fi
-          echo "re-deleting expected modify/delete conflicts:"
-          printf '%s\n' "${unmerged[@]}"
-          git rm -f -- "${unmerged[@]}"
-          git commit --no-edit
 
       - uses: DeterminateSystems/determinate-nix-action@v3.21.9
         # Only the weekly lock bump needs Nix in this job; the verify matrix
