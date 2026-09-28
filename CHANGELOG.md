@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.4](https://github.com/rvben/unifi-cli/compare/v0.4.3...v0.4.4) - 2026-09-27
+
+### Fixed
+
+- **deps**: update rustls to 0.23.45 for RUSTSEC-2026-0285 ([4c1d51c](https://github.com/rvben/unifi-cli/commit/4c1d51c36bc77d4175d841bd0d2de3ac79ed6562))
+
 ## [0.4.3](https://github.com/rvben/unifi-cli/compare/v0.4.2...v0.4.3) - 2026-09-17
 
 ### Added
