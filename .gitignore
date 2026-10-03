@@ -3,4 +3,3 @@
 .direnv/
 result
 result-*
-flake.lock
