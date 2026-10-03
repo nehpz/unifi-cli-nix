@@ -99,7 +99,7 @@ The package installs both `unifi` and `unifi-cli`. An overlay is also exported a
 
 The flake reads the version from `Cargo.toml` and Rust dependencies from `Cargo.lock`, so it needs no manual updates on release. The committed `flake.lock` pins nixpkgs and the Rust toolchain for standalone builds and development shells; update it deliberately with `nix flake update`.
 
-For development, `nix develop` (or `direnv allow` with nix-direnv installed) provides the Rust toolchain. `nix flake check` builds the package, runs the Rust tests, and checks both installed commands on the current platform. `nix flake check --all-systems --no-build` evaluates every supported platform without compiling for other architectures.
+For development, `nix develop` (or `direnv allow` with nix-direnv installed) provides the Rust toolchain, language server, nextest, and Nix formatter. `nix flake check` builds the package, runs the Rust tests, checks both installed commands and shell completions, and verifies that the overlay respects the consumer’s Rust toolchain. `nix flake check --all-systems --no-build --option allow-import-from-derivation false` evaluates every supported platform without building during evaluation. Run `nix fmt -- --check flake.nix nix/*.nix` to check Nix formatting.
 
 ## Configuration
 
