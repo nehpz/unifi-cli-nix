@@ -45,6 +45,62 @@ uvx unifi-cli clients list
 
 Pre-built binaries for Linux (x64, arm64), macOS (x64, arm64), and Windows (x64) on the [releases page](https://github.com/rvben/unifi-cli/releases).
 
+### With Nix
+
+The flake supports Linux (x64, arm64) and macOS (Apple Silicon). For Intel Macs, use the pre-built release binaries above; current nixpkgs no longer supports that platform.
+
+Run without installing:
+
+```bash
+nix run github:rvben/unifi-cli -- clients list
+```
+
+To install it from a flake-based NixOS or Home Manager setup, add the input and have it follow your `nixpkgs`:
+
+```nix
+# flake.nix
+inputs = {
+  nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  unifi-cli = {
+    url = "github:rvben/unifi-cli";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+};
+```
+
+Then add the package. As a Home Manager module:
+
+```nix
+{ inputs, pkgs, ... }:
+
+{
+  home.packages = [
+    inputs.unifi-cli.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+Or as a NixOS module:
+
+```nix
+{ inputs, pkgs, ... }:
+
+{
+  environment.systemPackages = [
+    inputs.unifi-cli.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+Pass `inputs` to your modules with `extraSpecialArgs = { inherit inputs; };` in `home-manager.lib.homeManagerConfiguration`, or `specialArgs = { inherit inputs; };` in `nixpkgs.lib.nixosSystem`. When using Home Manager as a NixOS module, set `home-manager.extraSpecialArgs = { inherit inputs; };` as well.
+
+The package installs both `unifi` and `unifi-cli`. An overlay is also exported as `inputs.unifi-cli.overlays.default`, which adds `pkgs.unifi-cli`.
+
+The flake reads the version from `Cargo.toml` and Rust dependencies from `Cargo.lock`, so it needs no manual updates on release. The committed `flake.lock` pins nixpkgs and the Rust toolchain for standalone builds and development shells; update it deliberately with `nix flake update`.
+
+For development, `nix develop` (or `direnv allow` with nix-direnv installed) provides the Rust toolchain. `nix flake check` builds the package, runs the Rust tests, and checks both installed commands on the current platform. `nix flake check --all-systems --no-build` evaluates every supported platform without compiling for other architectures.
+
 ## Configuration
 
 Run `unifi config init` for interactive setup, or configure manually:

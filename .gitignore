@@ -1,5 +1,8 @@
 /target
 .claude/investigations/
+.direnv/
+result
+result-*
 /result
 /result-*
 .direnv/
