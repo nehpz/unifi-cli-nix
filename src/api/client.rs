@@ -3,6 +3,10 @@ use serde::de::DeserializeOwned;
 
 use super::types::*;
 
+#[cfg(test)]
+#[path = "site_discovery_tests.rs"]
+mod site_discovery_tests;
+
 pub fn error_for_status(status: u16, message: String) -> ApiError {
     match status {
         401 | 403 => ApiError::Auth(message),
