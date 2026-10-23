@@ -8,6 +8,7 @@ CLI for UniFi Network controller with an interactive TUI dashboard. Designed for
 
 ```bash
 # Install (pick one)
+brew install rvben/tap/unifi-cli # macOS or Linux
 cargo install unifi-cli        # From source
 uvx unifi-cli --help           # Run without installing (via uv)
 pip install unifi-cli           # Via pip
@@ -26,6 +27,24 @@ Ubiquiti documents the current flow in
 [Getting Started with the Official UniFi API](https://help.ui.com/hc/en-us/articles/30076656117655-Getting-Started-with-the-Official-UniFi-API).
 
 ## Installation
+
+### With Homebrew
+
+```bash
+brew install rvben/tap/unifi-cli
+```
+
+The tap provides pre-built binaries for Apple Silicon and Intel Macs, and ARM64
+and x86_64 Linux. It installs both `unifi` and `unifi-cli`, with shell completions
+for Bash, Zsh, and Fish.
+
+To update:
+
+```bash
+brew update
+brew upgrade unifi-cli
+```
+
 
 ### From crates.io
 

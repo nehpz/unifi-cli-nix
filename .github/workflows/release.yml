@@ -203,19 +203,19 @@ jobs:
           mkdir -p release-package
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp "target/${{ matrix.target }}/release/unifi-cli.exe" release-package/unifi-cli.exe
+            cp "target/${{ matrix.target }}/release/"{unifi,unifi-cli}.exe release-package/
             cd release-package
-            powershell -command "Compress-Archive -Path unifi-cli.exe -DestinationPath ../${ARCHIVE_NAME}.zip"
+            powershell -command "Compress-Archive -Path unifi.exe,unifi-cli.exe -DestinationPath ../${ARCHIVE_NAME}.zip"
             cd ..
             powershell -command "Get-FileHash -Path '${ARCHIVE_NAME}.zip' -Algorithm SHA256 | Select-Object -ExpandProperty Hash" > "${ARCHIVE_NAME}.zip.sha256"
           else
             if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-              BIN_PATH="target-host/aarch64-unknown-linux-gnu/release/unifi-cli"
+              BIN_DIR="target-host/aarch64-unknown-linux-gnu/release"
             else
-              BIN_PATH="target/${{ matrix.target }}/release/unifi-cli"
+              BIN_DIR="target/${{ matrix.target }}/release"
             fi
-            cp "$BIN_PATH" release-package/unifi-cli
-            tar -czf "${ARCHIVE_NAME}.tar.gz" -C release-package unifi-cli
+            cp "$BIN_DIR/unifi" "$BIN_DIR/unifi-cli" release-package/
+            tar -czf "${ARCHIVE_NAME}.tar.gz" -C release-package unifi unifi-cli
 
             if [[ "${{ runner.os }}" == "macOS" ]]; then
               shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
@@ -266,12 +266,27 @@ jobs:
           path: target/wheels/*.tar.gz
           name: sdist
 
+  homebrew:
+    name: Validate Homebrew release archives
+    needs: build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/release-artifacts
+      - name: Test formula generation
+        run: make packaging-test
+      - name: Validate archives and install the native Homebrew package
+        run: python3 scripts/test_homebrew.py --artifacts "${{ runner.temp }}/release-artifacts"
+
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
-    needs: [build, sdist]
+    needs: [build, sdist, homebrew]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -358,66 +373,21 @@ jobs:
         with:
           path: /tmp/artifacts
 
-      - name: Compute SHA256 hashes
-        id: hashes
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Generate and validate Homebrew formula
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
         run: |
-          for target in x86_64-apple-darwin aarch64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            sha=$(cat /tmp/artifacts/release-${target}/unifi-cli-${{ github.ref_name }}-${target}.tar.gz.sha256 | awk '{print $1}')
-            key=$(echo "${target}" | tr '-' '_')
-            echo "${key}=${sha}" >> "$GITHUB_OUTPUT"
-          done
+          python3 scripts/homebrew_formula.py --version "$RELEASE_VERSION" \
+            --artifacts /tmp/artifacts --output /tmp/unifi-cli.rb
+          ruby -c /tmp/unifi-cli.rb
 
       - name: Update Homebrew formula
         env:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          RELEASE_VERSION: ${{ github.ref_name }}
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION_NUM="${VERSION#v}"
-
-          cat > /tmp/unifi-cli.rb << 'FORMULA'
-          class UnifiCli < Formula
-            desc "CLI for UniFi Network controllers"
-            homepage "https://github.com/rvben/unifi-cli"
-            version "VERSION_NUM"
-            license "MIT"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/rvben/unifi-cli/releases/download/VERSION/unifi-cli-VERSION-aarch64-apple-darwin.tar.gz"
-                sha256 "SHA_AARCH64_APPLE_DARWIN"
-              else
-                url "https://github.com/rvben/unifi-cli/releases/download/VERSION/unifi-cli-VERSION-x86_64-apple-darwin.tar.gz"
-                sha256 "SHA_X86_64_APPLE_DARWIN"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "https://github.com/rvben/unifi-cli/releases/download/VERSION/unifi-cli-VERSION-aarch64-unknown-linux-gnu.tar.gz"
-                sha256 "SHA_AARCH64_UNKNOWN_LINUX_GNU"
-              else
-                url "https://github.com/rvben/unifi-cli/releases/download/VERSION/unifi-cli-VERSION-x86_64-unknown-linux-gnu.tar.gz"
-                sha256 "SHA_X86_64_UNKNOWN_LINUX_GNU"
-              end
-            end
-
-            def install
-              bin.install "unifi"
-            end
-
-            test do
-              system "#{bin}/unifi", "--version"
-            end
-          end
-          FORMULA
-
-          sed -i "s/VERSION_NUM/${VERSION_NUM}/g" /tmp/unifi-cli.rb
-          sed -i "s/VERSION/${VERSION}/g" /tmp/unifi-cli.rb
-          sed -i "s/SHA_AARCH64_APPLE_DARWIN/${{ steps.hashes.outputs.aarch64_apple_darwin }}/g" /tmp/unifi-cli.rb
-          sed -i "s/SHA_X86_64_APPLE_DARWIN/${{ steps.hashes.outputs.x86_64_apple_darwin }}/g" /tmp/unifi-cli.rb
-          sed -i "s/SHA_AARCH64_UNKNOWN_LINUX_GNU/${{ steps.hashes.outputs.aarch64_unknown_linux_gnu }}/g" /tmp/unifi-cli.rb
-          sed -i "s/SHA_X86_64_UNKNOWN_LINUX_GNU/${{ steps.hashes.outputs.x86_64_unknown_linux_gnu }}/g" /tmp/unifi-cli.rb
-
           # Authenticate to the tap with a write deploy key scoped to
           # rvben/homebrew-tap. The key does not expire, so cross-repo pushes
           # keep working without periodic token rotation.
@@ -433,7 +403,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/unifi-cli.rb
-          git diff --cached --quiet || git commit -m "Update unifi-cli to ${VERSION}"
+          git diff --cached --quiet || git commit -m "chore(unifi-cli): update to ${RELEASE_VERSION}"
           git push
 
   attest-release:
