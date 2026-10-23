@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.5](https://github.com/rvben/unifi-cli/compare/v0.4.4...v0.4.5) - 2026-10-23
+
+### Added
+
+- **nix**: add flake package, overlay and dev shell (#15) ([7c33413](https://github.com/rvben/unifi-cli/commit/7c33413f61fc61e4ca88d6de5a885f67f3ded675))
+
+### Fixed
+
+- **homebrew**: ship both commands and validate installations ([b36ab48](https://github.com/rvben/unifi-cli/commit/b36ab48253ad0f9cec5bc37a64b38e4b3b067d31))
+- **nix**: pin inputs and validate supported platforms ([4b1b296](https://github.com/rvben/unifi-cli/commit/4b1b296ead663cecce2e63801c6955824ea75f9f))
+
 ## [0.4.4](https://github.com/rvben/unifi-cli/compare/v0.4.3...v0.4.4) - 2026-09-27
 
 ### Fixed
