@@ -1,0 +1,38 @@
+class UnifiCli < Formula
+  desc "CLI for UniFi Network controllers"
+  homepage "https://github.com/rvben/unifi-cli"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "@BASE_URL@/unifi-cli-v@VERSION@-aarch64-apple-darwin.tar.gz"
+      sha256 "@aarch64-apple-darwin@"
+    else
+      url "@BASE_URL@/unifi-cli-v@VERSION@-x86_64-apple-darwin.tar.gz"
+      sha256 "@x86_64-apple-darwin@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "@BASE_URL@/unifi-cli-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "@aarch64-unknown-linux-gnu@"
+    else
+      url "@BASE_URL@/unifi-cli-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "@x86_64-unknown-linux-gnu@"
+    end
+  end
+
+  def install
+    bin.install "unifi", "unifi-cli"
+    generate_completions_from_executable(bin/"unifi", "completions")
+  end
+
+  test do
+    %w[unifi unifi-cli].each do |command|
+      assert_match version.to_s, shell_output("#{bin}/#{command} --version")
+      system "#{bin}/#{command}", "--help"
+    end
+  end
+end

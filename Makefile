@@ -1,4 +1,4 @@
-.PHONY: build release test lint fmt check update-deps clean install release-patch release-minor release-major
+.PHONY: build release test packaging-test lint fmt check update-deps clean install release-patch release-minor release-major
 
 build:
 	cargo build
@@ -16,7 +16,10 @@ lint:
 fmt:
 	cargo fmt
 
-check: lint test
+packaging-test:
+	python3 -m unittest discover -s tests/packaging -v
+
+check: lint test packaging-test
 
 update-deps:
 	upd --apply --max-bump minor --lang rust,actions

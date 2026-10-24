@@ -10,16 +10,50 @@ Start from a clean, up-to-date `main` branch and run:
 
 ```sh
 vership preflight
-vership bump patch # or minor/major
-tarry cmd --timeout 20m -- vership verify
+vership bump patch --prepare # or minor/major
 ```
 
-Vership runs `make check`, updates the package version and changelog, creates
-the Conventional Commit release commit and tag, and pushes both. The tag starts
-the release workflow. Use `vership release` only when the on-disk version was
-intentionally set in advance.
+Vership runs `make check`, updates the package version and changelog, and creates
+the Conventional Commit release commit locally. Review the prepared release and
+obtain approval to push and publish, then finish that same version without
+bumping again:
+
+```sh
+vership release
+```
+
+The tag starts the release workflow. Wait for all publication and downstream
+packaging jobs to finish, then run `vership verify` and confirm every intended
+target, including the Homebrew tap.
 
 Cargo and Python package versions are kept synchronized as one release unit.
+
+## Homebrew
+
+The release workflow maintains `rvben/homebrew-tap` using the
+`HOMEBREW_TAP_DEPLOY_KEY` secret. The formula template is
+`packaging/unifi-cli.rb.in`; `scripts/homebrew_formula.py` fills in the version
+and checksums from the release artifacts. It verifies every archive's checksum
+and requires both executables before generating the formula. `unifi-cli` launches
+the sibling `unifi` executable, so both must be shipped together on every platform.
+
+Before publication, the workflow installs the native macOS archive through
+Homebrew and tests both commands and generated Bash, Zsh, and Fish completions.
+This check also runs during release dry runs. Pull requests test the same formula
+with locally built native binaries. Run it locally with Python 3.11 or newer and
+Homebrew, on a machine without an existing Homebrew installation of `unifi-cli`:
+
+```sh
+make packaging-test
+cargo build --locked --bins
+python3 scripts/test_homebrew.py --bin-dir target/debug
+```
+
+The smoke test installs without linking commands into the global prefix and
+removes its test installation afterward. Homebrew formula generation and tap
+updates happen automatically after the GitHub release is published. If only the
+tap update fails, retry that job; do not create another release. If the archives
+themselves are incomplete, publish a patch release rather than replacing assets.
 
 ## Failure policy
 

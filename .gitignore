@@ -3,6 +3,7 @@
 .direnv/
 result
 result-*
+__pycache__/
 /result
 /result-*
 .direnv/
