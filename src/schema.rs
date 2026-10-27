@@ -318,7 +318,14 @@ fn command_metadata() -> HashMap<&'static str, CommandMeta> {
             Some("Uses the richer legacy network configuration endpoint and emits only typed, non-secret fields."),
         ),
     );
-    m.insert("events list", f(fields::EVENTS_LIST, false, None));
+    m.insert(
+        "events list",
+        f(
+            fields::EVENTS_LIST,
+            false,
+            Some("total counts the events retrieved for the offset + limit window, not the controller's complete event history."),
+        ),
+    );
     m.insert(
         "system health",
         f(

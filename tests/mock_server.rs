@@ -5507,3 +5507,138 @@ mod schema_contract {
         );
     }
 }
+
+// Pagination must be applied after fetching enough records to cover the
+// skipped prefix. Exercise the real binary so this checks the JSON a caller
+// receives, not just the API client's return value.
+mod event_pagination {
+    use super::*;
+
+    async fn assert_pages(fallback_to_alarms: bool) {
+        let server = MockServer::start().await;
+        let events: Vec<_> = (0..8)
+            .map(|i| serde_json::json!({"msg": format!("event-{i}"), "time": 100 - i}))
+            .collect();
+        if fallback_to_alarms {
+            Mock::given(method("GET"))
+                .and(path("/proxy/network/api/s/default/stat/event"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            // The alarm endpoint returns all records in arbitrary order.
+            let mut alarms = events.clone();
+            alarms.rotate_left(3);
+            Mock::given(method("GET"))
+                .and(path("/proxy/network/api/s/default/rest/alarm"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "meta": {"rc": "ok"}, "data": alarms
+                })))
+                .mount(&server)
+                .await;
+        } else {
+            Mock::given(method("GET"))
+                .and(path("/proxy/network/api/s/default/stat/event"))
+                .respond_with(move |request: &wiremock::Request| {
+                    // Model the controller honoring its server-side limit;
+                    // always returning the whole fixture would hide the bug.
+                    let limit: usize = request
+                        .url
+                        .query_pairs()
+                        .find(|(key, _)| key == "_limit")
+                        .expect("event request must include _limit")
+                        .1
+                        .parse()
+                        .expect("_limit must be an integer");
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                        "meta": {"rc": "ok"},
+                        "data": events.iter().take(limit).collect::<Vec<_>>()
+                    }))
+                })
+                .mount(&server)
+                .await;
+        }
+
+        for (limit, offset, total, expected) in [
+            (2, 0, 2, vec!["event-0", "event-1"]),
+            (2, 2, 4, vec!["event-2", "event-3"]),
+            (3, 1, 4, vec!["event-1", "event-2", "event-3"]),
+            (3, 6, 8, vec!["event-6", "event-7"]),
+            (2, 9, 8, vec![]),
+            (0, 3, 3, vec![]),
+        ] {
+            let body = run_json(
+                &server,
+                &[
+                    "events",
+                    "list",
+                    "--limit",
+                    &limit.to_string(),
+                    "--offset",
+                    &offset.to_string(),
+                    "--fields",
+                    "msg",
+                ],
+            )
+            .await;
+            let messages: Vec<_> = body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| {
+                    assert_eq!(
+                        item.as_object().unwrap().len(),
+                        1,
+                        "field projection must survive pagination"
+                    );
+                    item["msg"].as_str().unwrap()
+                })
+                .collect();
+            assert_eq!(messages, expected, "limit={limit}, offset={offset}");
+            assert_eq!(body["limit"], limit);
+            assert_eq!(body["offset"], offset);
+            assert_eq!(body["total"], total, "total counts the fetched window");
+        }
+    }
+
+    #[tokio::test]
+    async fn events_pages_from_stat_event() {
+        assert_pages(false).await;
+    }
+
+    #[tokio::test]
+    async fn events_pages_from_unsorted_alarm_fallback() {
+        assert_pages(true).await;
+    }
+
+    #[tokio::test]
+    async fn events_pagination_overflow_is_rejected_before_http() {
+        let server = MockServer::start().await;
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_unifi"))
+            .args([
+                "--host",
+                &server.uri(),
+                "--api-key",
+                "test-key",
+                "events",
+                "list",
+                "--limit",
+                "1",
+                "--offset",
+                &usize::MAX.to_string(),
+                "--output",
+                "json",
+            ])
+            .output()
+            .expect("failed to run the unifi binary");
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stderr)
+            .expect("overflow must produce a structured error");
+        assert_eq!(envelope["error"]["kind"], "general_error");
+        assert_eq!(
+            envelope["error"]["message"],
+            "--offset + --limit is too large"
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+}
