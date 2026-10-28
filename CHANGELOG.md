@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0](https://github.com/rvben/unifi-cli/compare/v0.4.6...v0.5.0) - 2026-10-28
+
+### Added
+
+- **auth**: add native sessions, MFA and live Network events ([b6717d7](https://github.com/rvben/unifi-cli/commit/b6717d71ca4558d4a2a9bca17439fda1be1431ab))
+
 ## [0.4.6](https://github.com/rvben/unifi-cli/compare/v0.4.5...v0.4.6) - 2026-10-27
 
 ### Fixed
