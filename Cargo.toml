@@ -24,7 +24,12 @@ clap_complete = "4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", features = ["sink"] }
+keyring = "4.2"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["derive"] }
 toml = "0.8"
 owo-colors = "4"
 dirs = "6"

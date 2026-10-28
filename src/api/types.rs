@@ -1138,6 +1138,9 @@ pub enum ApiError {
     },
     NotFound(String),
     Auth(String),
+    /// Session authentication has its own remediation and must not recommend
+    /// replacing an unrelated Integration API key.
+    SessionAuth(String),
     /// A request that cannot succeed against the resource's current state,
     /// rejected locally before any HTTP call. Published by `unifi schema`
     /// as kind `conflict`, exit code 6.
@@ -1254,6 +1257,7 @@ impl fmt::Display for ApiError {
                     "\n  Hint: Create or replace the key in UniFi Network > Integrations\n  Guide: https://help.ui.com/hc/en-us/articles/30076656117655-Getting-Started-with-the-Official-UniFi-API"
                 )
             }
+            ApiError::SessionAuth(msg) => write!(f, "Authentication error: {msg}"),
             ApiError::Conflict(msg) => write!(f, "{msg}"),
             ApiError::Unsupported { endpoint, reason } => {
                 match reason {

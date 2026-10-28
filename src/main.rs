@@ -22,11 +22,11 @@ struct Cli {
     #[arg(long, env = "UNIFI_API_KEY")]
     api_key: Option<String>,
 
-    /// Username for Protect direct API (or set UNIFI_USERNAME env var)
+    /// Username for UniFi OS login / Protect direct API (or set UNIFI_USERNAME)
     #[arg(long, env = "UNIFI_USERNAME")]
     username: Option<String>,
 
-    /// Password for Protect direct API (or set UNIFI_PASSWORD env var)
+    /// Password for UniFi OS login / Protect direct API (or set UNIFI_PASSWORD)
     #[arg(long, env = "UNIFI_PASSWORD")]
     password: Option<String>,
 
@@ -121,6 +121,10 @@ enum Command {
     /// Manage configuration
     #[command(subcommand)]
     Config(ConfigCommand),
+
+    /// Manage UniFi OS sessions in the OS credential store
+    #[command(subcommand)]
+    Auth(AuthCommand),
 
     /// Interactive TUI dashboard with real-time bandwidth and device status
     #[command(alias = "top")]
@@ -391,6 +395,16 @@ enum ConfigCommand {
 }
 
 #[derive(Subcommand)]
+enum AuthCommand {
+    /// Log in and store the session securely (password is not saved)
+    Login,
+    /// Verify the saved session with the controller
+    Status,
+    /// Remove the saved session locally (does not revoke it on the controller)
+    Logout,
+}
+
+#[derive(Subcommand)]
 enum NetworksCommand {
     /// List networks
     List,
@@ -403,6 +417,21 @@ enum NetworksCommand {
 
 #[derive(Subcommand)]
 enum EventsCommand {
+    /// Stream live Network events and updates using session authentication
+    Watch {
+        /// Create an ephemeral session from username/password; skip the OS store
+        #[arg(long)]
+        login: bool,
+        /// Legacy site name (not the Integration API UUID)
+        #[arg(long, default_value = "default")]
+        site: String,
+        /// Stop after this many seconds (otherwise run until Ctrl-C)
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=86400))]
+        duration: Option<u64>,
+        /// Stop after this many event/update messages
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+    },
     /// List recent events
     List {
         /// Number of events to show
@@ -1519,6 +1548,18 @@ async fn run() {
 
     let config = load_config(cli.profile.as_deref());
 
+    if matches!(
+        cli.command,
+        Command::Auth(_) | Command::Events(EventsCommand::Watch { .. })
+    ) {
+        if let Err(error) = run_session_command(&cli, &config, out).await {
+            let (kind, code) = error_kind_and_code(error.as_ref());
+            print_error_envelope(kind, &error.to_string(), None);
+            std::process::exit(code);
+        }
+        return;
+    }
+
     let host = cli.host.or(config.host).unwrap_or_else(|| {
         eprintln!("Error: No host specified.");
         eprintln!();
@@ -1805,6 +1846,9 @@ async fn run() {
             }
         },
         Command::Events(cmd) => match cmd {
+            EventsCommand::Watch { .. } => {
+                unreachable!("session commands return before API-key setup")
+            }
             EventsCommand::List {
                 limit,
                 offset,
@@ -1869,6 +1913,7 @@ async fn run() {
             return;
         }
         Command::Schema
+        | Command::Auth(_)
         | Command::Capabilities
         | Command::Completions { .. }
         | Command::Config(ConfigCommand::Init) => {
@@ -1881,6 +1926,178 @@ async fn run() {
         print_error_envelope(kind, &e.to_string(), None);
         std::process::exit(exit_code);
     }
+}
+
+/// Interactive login always asks for a fresh code. Noninteractive callers
+/// may supply one code; whitespace-only environment values count as absent.
+fn session_mfa_code(
+    login: bool,
+    is_tty: bool,
+    env_code: Option<String>,
+    prompt: impl FnOnce() -> std::io::Result<String>,
+) -> Result<zeroize::Zeroizing<String>, Box<dyn std::error::Error>> {
+    let env_code = env_code.map(zeroize::Zeroizing::new);
+    let code = if login && is_tty {
+        zeroize::Zeroizing::new(prompt()?)
+    } else if let Some(code) = env_code.filter(|code| !code.trim().is_empty()) {
+        code
+    } else {
+        let hint = if login {
+            "Run `unifi auth login` in an interactive terminal, or supply UNIFI_MFA_CODE with the login credentials."
+        } else {
+            "Supply a current UNIFI_MFA_CODE with the credentials for `events watch --login`."
+        };
+        return Err(api::ApiError::SessionAuth(format!(
+            "MFA code required. {hint} No automatic retry was attempted."
+        ))
+        .into());
+    };
+    // Authenticator apps commonly display codes in two groups of digits.
+    Ok(zeroize::Zeroizing::new(
+        code.trim().chars().filter(|c| *c != ' ').collect(),
+    ))
+}
+
+async fn run_session_command(
+    cli: &Cli,
+    config: &ConfigValues,
+    out: OutputConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{IsTerminal, Write};
+    use unifi_cli::api::session::{LOGIN_HINT, NetworkSession, validate_site};
+    use unifi_cli::auth::{OsSessionStore, SessionStore, saved_session_for_watch};
+    use zeroize::Zeroizing;
+
+    let host = cli
+        .host
+        .as_deref()
+        .or(config.host.as_deref())
+        .unwrap_or_else(|| {
+            config_exit("No host specified. Run `unifi config init` or set UNIFI_HOST.")
+        });
+    let options = api::ClientOptions {
+        accept_invalid_certs: cli.accept_invalid_certs || config.accept_invalid_certs,
+    };
+    let store = OsSessionStore::new(host, cli.profile.as_deref())?;
+    if matches!(cli.command, Command::Auth(AuthCommand::Logout)) {
+        let removed = store.delete()?;
+        out.print_result(
+            &serde_json::json!({"status":"ok", "removed":removed}),
+            "Saved session removed locally. Controller sessions are not revoked.",
+        );
+        return Ok(());
+    }
+    if matches!(cli.command, Command::Auth(AuthCommand::Status)) {
+        let secret = store
+            .load()?
+            .ok_or_else(|| api::ApiError::SessionAuth(format!("No saved session. {LOGIN_HINT}")))?;
+        NetworkSession::from_secret(host, secret, options)?
+            .check()
+            .await?;
+        out.print_result(
+            &serde_json::json!({"status":"authenticated"}),
+            "Saved Network session is valid.",
+        );
+        return Ok(());
+    }
+    // Validate before prompting, reading Keychain, or sending a login request.
+    if let Command::Events(EventsCommand::Watch { site, .. }) = &cli.command {
+        validate_site(site)?;
+    }
+    let username = cli.username.as_deref().or(config.username.as_deref());
+    let password = cli.password.as_deref().or(config.password.as_deref());
+    let login = matches!(cli.command, Command::Auth(AuthCommand::Login));
+    let ephemeral = matches!(
+        cli.command,
+        Command::Events(EventsCommand::Watch { login: true, .. })
+    );
+    let credential_hint = if ephemeral {
+        "Set UNIFI_USERNAME and UNIFI_PASSWORD for `events watch --login`."
+    } else {
+        "Set UNIFI_USERNAME and UNIFI_PASSWORD, or run `unifi auth login` in an interactive terminal."
+    };
+    let saved = if login {
+        None
+    } else {
+        saved_session_for_watch(&store, ephemeral, username.is_some() && password.is_some())?
+    };
+    let session = if let Some(secret) = saved {
+        NetworkSession::from_secret(host, secret, options)?
+    } else {
+        let username = match username {
+            Some(value) => value.to_owned(),
+            None if login && std::io::stdin().is_terminal() => {
+                eprint!("UniFi OS username: ");
+                std::io::stderr().flush()?;
+                let mut value = String::new();
+                std::io::stdin().read_line(&mut value)?;
+                value.trim().to_owned()
+            }
+            None => {
+                return Err(api::ApiError::SessionAuth(format!(
+                    "Session login requires a username. {credential_hint}"
+                ))
+                .into());
+            }
+        };
+        let password = Zeroizing::new(match password {
+            Some(value) => value.to_owned(),
+            None if login && std::io::stdin().is_terminal() => {
+                rpassword::prompt_password("UniFi OS password (not saved): ")?
+            }
+            None => {
+                return Err(api::ApiError::SessionAuth(format!(
+                    "Session login requires a password. {credential_hint}"
+                ))
+                .into());
+            }
+        });
+        match NetworkSession::begin_login(host, &username, &password, options).await? {
+            api::session::LoginOutcome::Authenticated(session) => session,
+            api::session::LoginOutcome::MfaRequired(challenge) => {
+                let code = session_mfa_code(
+                    login,
+                    std::io::stdin().is_terminal(),
+                    std::env::var("UNIFI_MFA_CODE").ok(),
+                    || rpassword::prompt_password("Authenticator code (not saved): "),
+                )?;
+                challenge
+                    .complete(&username, &password, &code)
+                    .await
+                    .map_err(|error| {
+                        if let api::ApiError::SessionAuth(message) = error {
+                            let hint = if login {
+                                "Run `unifi auth login` again with a current code."
+                            } else {
+                                "Retry `events watch --login` with a current UNIFI_MFA_CODE."
+                            };
+                            api::ApiError::SessionAuth(format!("{message} {hint}"))
+                        } else {
+                            error
+                        }
+                    })?
+            }
+        }
+    };
+    if login {
+        session.check_after_login().await?;
+        store.save(session.secret())?;
+        out.print_result(
+            &serde_json::json!({"status":"authenticated", "storage":"os_credential_store"}),
+            "Network session saved in the OS credential store. Password was not saved.",
+        );
+        return Ok(());
+    }
+    if let Command::Events(EventsCommand::Watch {
+        site,
+        duration,
+        limit,
+        ..
+    }) = &cli.command
+    {
+        commands::events::watch(&session, out, site, *duration, *limit).await?;
+    }
+    Ok(())
 }
 
 async fn run_tui_command(
@@ -1952,6 +2169,37 @@ mod tests {
     use std::io::Write;
 
     // --- Config loading ---
+
+    #[test]
+    fn mfa_code_selection_prefers_a_fresh_interactive_prompt() {
+        for login in [false, true] {
+            for is_tty in [false, true] {
+                for env in [None, Some(""), Some("  "), Some("654321")] {
+                    let called = std::cell::Cell::new(false);
+                    let result = session_mfa_code(login, is_tty, env.map(str::to_owned), || {
+                        called.set(true);
+                        Ok(" 123 456 ".into())
+                    });
+                    if login && is_tty {
+                        assert_eq!(result.unwrap().as_str(), "123456");
+                        assert!(called.get());
+                    } else {
+                        assert!(!called.get());
+                        if env == Some("654321") {
+                            assert_eq!(result.unwrap().as_str(), "654321");
+                        } else {
+                            let error = result.unwrap_err().to_string();
+                            assert!(error.contains("UNIFI_MFA_CODE"));
+                            assert!(!error.contains("Integrations"));
+                            if !login {
+                                assert!(!error.contains("auth login"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn load_config_both_values() {

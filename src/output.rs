@@ -111,7 +111,9 @@ pub mod exit_codes {
 pub fn exit_code_for_error(err: &(dyn std::error::Error + 'static)) -> i32 {
     if let Some(api_err) = err.downcast_ref::<crate::api::ApiError>() {
         match api_err {
-            crate::api::ApiError::Auth(_) => exit_codes::AUTH_ERROR,
+            crate::api::ApiError::Auth(_) | crate::api::ApiError::SessionAuth(_) => {
+                exit_codes::AUTH_ERROR
+            }
             crate::api::ApiError::NotFound(_) => exit_codes::NOT_FOUND,
             crate::api::ApiError::Api { .. } => exit_codes::API_ERROR,
             crate::api::ApiError::Unsupported { .. } => exit_codes::NOT_FOUND,
@@ -129,7 +131,9 @@ pub fn exit_code_for_error(err: &(dyn std::error::Error + 'static)) -> i32 {
 pub fn error_kind_and_code(err: &(dyn std::error::Error + 'static)) -> (&'static str, i32) {
     if let Some(api_err) = err.downcast_ref::<crate::api::ApiError>() {
         match api_err {
-            crate::api::ApiError::Auth(_) => ("auth_error", exit_codes::AUTH_ERROR),
+            crate::api::ApiError::Auth(_) | crate::api::ApiError::SessionAuth(_) => {
+                ("auth_error", exit_codes::AUTH_ERROR)
+            }
             crate::api::ApiError::NotFound(_) => ("not_found", exit_codes::NOT_FOUND),
             // 408 and 429 are the two 4xx that invite the same request again,
             // so they stay retryable even though they are client errors.

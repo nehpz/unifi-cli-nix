@@ -42,6 +42,20 @@ fn command_metadata() -> HashMap<&'static str, CommandMeta> {
     };
 
     // clients
+    m.insert("auth login", f(&[("status", "string"), ("storage", "string")], true,
+        Some("Authenticates with UniFi OS and stores only the session in the OS credential store, scoped by host/profile. Never saves the password or MFA code. Prompts for an authenticator code when needed; noninteractive callers may supply a current UNIFI_MFA_CODE.")));
+    m.insert("auth status", f(&[("status", "string")], false,
+        Some("Checks the saved session against Network. Does not use an API key or silently log in again.")));
+    m.insert(
+        "auth logout",
+        f(
+            &[("status", "string"), ("removed", "boolean")],
+            true,
+            Some("Deletes only the local saved session; does not revoke controller sessions."),
+        ),
+    );
+    m.insert("events watch", f(&[], false,
+        Some("Streams event and client/device update envelopes. Requires a UniFi OS session; API keys are not used. JSON Lines preserves update details with credential fields recursively replaced by [REDACTED]; terminal output summarizes updates. Free-form messages may contain private data. Stops on Ctrl-C, --duration or --limit; unexpected disconnects fail without reconnecting.")));
     m.insert("clients list", f(fields::CLIENTS_LIST, false, None));
     m.insert("clients show", f(fields::CLIENTS_SHOW, false, None));
     m.insert(
@@ -576,9 +590,8 @@ fn infer_arg_type(arg: &clap::Arg) -> &'static str {
     }
     // Known integer args by id
     match id {
-        "limit" | "offset" | "interval" | "port" | "watch" | "ttl" | "priority" | "weight" => {
-            "integer"
-        }
+        "limit" | "offset" | "interval" | "duration" | "port" | "watch" | "ttl" | "priority"
+        | "weight" => "integer",
         _ => "string",
     }
 }
@@ -785,6 +798,7 @@ fn enrich_v0_3(schema: &mut serde_json::Value) {
             } else if matches!(
                 name.as_str(),
                 "clients kick"
+                    | "auth login"
                     | "ports cycle"
                     | "protect rtsps create"
                     | "dns create"
@@ -804,6 +818,13 @@ fn enrich_v0_3(schema: &mut serde_json::Value) {
             object.insert("output_kind".into(), serde_json::json!("stream"));
             object.insert("stream_format".into(), serde_json::json!("terminal"));
             object.insert("requires_tty".into(), serde_json::json!(true));
+            continue;
+        }
+        if name == "events watch" {
+            object.insert("output_kind".into(), serde_json::json!("stream"));
+            object.insert("stream_format".into(), serde_json::json!("ndjson"));
+            object.remove("output_fields");
+            object.insert("stdout_schema".into(), serde_json::json!({"type":"object", "properties":{"message":{"type":"string"},"data":{}}, "required":["message","data"], "additionalProperties":false}));
             continue;
         }
         object.insert(
