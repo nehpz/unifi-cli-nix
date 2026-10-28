@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.6](https://github.com/rvben/unifi-cli/compare/v0.4.5...v0.4.6) - 2026-10-27
+
+### Fixed
+
+- **events**: include skipped records in pagination fetches ([7fb2edc](https://github.com/rvben/unifi-cli/commit/7fb2edca01f728aa49c16ea1d27bcd2478b532aa))
+
 ## [0.4.5](https://github.com/rvben/unifi-cli/compare/v0.4.4...v0.4.5) - 2026-10-23
 
 ### Added

@@ -367,7 +367,12 @@ it inside an update that cannot undo it when the create fails.
 ```bash
 unifi events list                           # Recent controller events
 unifi events list --limit 50                # Last 50 events
+unifi events list --limit 10 --offset 10    # Next 10 recent events
 ```
+
+The command fetches enough recent events to cover both the offset and the
+requested page. JSON `total` counts the events retrieved for that window; it is
+not a count of the controller's complete event history.
 
 ### Networks
 

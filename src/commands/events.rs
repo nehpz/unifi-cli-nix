@@ -15,7 +15,18 @@ pub async fn list(
     out: OutputConfig,
     pagination: Pagination,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let events = client.list_events(pagination.limit).await?;
+    // Both the legacy query and the alarm fallback limit records before this
+    // command skips the offset, so include that prefix in the fetch window.
+    let fetch_limit = pagination
+        .offset
+        .checked_add(pagination.limit)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "--offset + --limit is too large",
+            )
+        })?;
+    let events = client.list_events(fetch_limit).await?;
     let total = events.len();
     let paginated: Vec<_> = events
         .into_iter()
