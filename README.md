@@ -179,6 +179,43 @@ unifi --host https://unifi.example.com --api-key YOUR_KEY clients list
 
 Priority: CLI flags > environment variables > config file.
 
+### Session authentication for live events
+
+```bash
+unifi auth login                         # Prompt for username/password and MFA if required
+unifi auth status                        # Verify the saved Network session
+unifi --profile office auth login        # Separate session for this host/profile
+unifi auth logout                        # Remove only the local saved session
+```
+
+`auth login` stores the session in macOS Keychain, Windows Credential Manager,
+or Linux Secret Service. The password is used once and is not saved. Sessions
+are isolated by controller origin and profile, expire according to controller
+policy, and are never written to the config file. An unavailable or locked
+credential store produces an error; there is no plaintext fallback. Logout
+removes the local entry and does not revoke sessions on the controller. Login
+uses `rememberMe: false`, including when saving a session; this does not request
+an extended lifetime. Run `auth login` again when the controller expires it.
+
+Existing `UNIFI_USERNAME` / `UNIFI_PASSWORD`, `--username` / `--password`, or
+configured credentials can also supply a session login. Prefer the hidden
+password prompt to passing a password in shell history or process arguments.
+For automation without a credential store, provide both environment variables
+to `events watch --login`; this creates an in-memory session for that invocation and
+saves nothing. When required, `auth login` prompts for a hidden authenticator
+code and completes the controller's MFA challenge. Codes and challenge cookies
+are used only in memory and are never saved. Noninteractive callers can supply
+a current `UNIFI_MFA_CODE` with their login credentials; no TOTP seed is needed
+or stored. Codes are single-use and short-lived; for repeated runs, prefer an
+interactive login followed by the saved session. Interactive `auth login` always
+prompts for a fresh code, ignoring any exported `UNIFI_MFA_CODE`. Only one code
+submission is attempted, with no automatic password retry or re-login. Push approval, passkeys, and sending email codes are not supported.
+
+Session login requires an HTTPS origin without a URL path or embedded credentials
+(HTTP is allowed only on loopback IP addresses for testing). Redirects are refused. The existing
+TLS verification policy applies to both login and streaming. Session requests
+connect directly to the controller and ignore HTTP proxy environment variables.
+
 TLS certificates are verified by default. For a local controller with a
 self-signed certificate, pass `--accept-invalid-certs`, set
 `UNIFI_ACCEPT_INVALID_CERTS=true`, or set `accept_invalid_certs = true` in the
@@ -368,11 +405,36 @@ it inside an update that cannot undo it when the create fails.
 unifi events list                           # Recent controller events
 unifi events list --limit 50                # Last 50 events
 unifi events list --limit 10 --offset 10    # Next 10 recent events
+unifi events watch                         # Live events and client/device updates
+unifi events watch --duration 30            # Stop after 30 seconds
+unifi events watch --site default --limit 5 # Stop after 5 messages
 ```
 
 The command fetches enough recent events to cover both the offset and the
 requested page. JSON `total` counts the events retrieved for that window; it is
 not a count of the controller's complete event history.
+
+`events watch` uses a UniFi OS session from `auth login`, or an ephemeral login
+when `--login` is supplied with username/password credentials. The saved session
+takes priority over configured Protect credentials; if no session is saved, a
+complete username/password pair can also create a temporary login. An API key alone is insufficient
+on some controllers and is never substituted for session authentication. Other
+Network commands continue using your API key.
+
+JSON output is JSON Lines: each line is `{"message":"device:sync","data":[...]}`.
+These are live update envelopes, distinct from the historical records returned by
+`events list`. Credential fields (including `x_authkey`, `x_vwirekey`, `syslog_key`,
+`guest_token`, and password/token/secret/cookie fields) are recursively replaced
+with `"[REDACTED]"`. Other fields are preserved. This is field-name redaction;
+free-form messages and other client/device details can still contain private data.
+Terminal output shows client/device update counts and up to three short event
+descriptions per message; use `--json` for detailed, redacted envelopes. `--limit` counts
+messages, including client/device updates; `--site` takes the legacy site name,
+not the Integration API UUID. `--duration` (1 to 86400 seconds) starts after connection.
+Ctrl-C, reaching either bound, and a closed output pipe stop cleanly. A controller
+disconnect, malformed message, or failed heartbeat returns a structured error;
+there is no automatic reconnect that could silently hide missed updates.
+Temporary sessions are left to expire under the controller's session policy.
 
 ### Networks
 

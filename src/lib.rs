@@ -1,4 +1,5 @@
 pub mod api;
+pub mod auth;
 pub mod commands;
 pub mod fields;
 pub mod output;

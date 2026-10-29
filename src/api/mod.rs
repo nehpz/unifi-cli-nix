@@ -1,4 +1,5 @@
 mod client;
+pub mod session;
 pub mod types;
 
 pub use client::ClientOptions;

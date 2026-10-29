@@ -146,6 +146,20 @@ fn api_error_display_auth() {
 }
 
 #[test]
+fn session_authentication_has_its_own_guidance_and_auth_exit_code() {
+    let error = ApiError::SessionAuth("MFA code required. Run `unifi auth login`.".into());
+    let display = error.to_string();
+    assert!(display.contains("unifi auth login"));
+    assert!(!display.contains("Integrations"));
+    assert!(!display.contains("API key"));
+    assert_eq!(
+        crate::output::error_kind_and_code(&error),
+        ("auth_error", 3)
+    );
+    assert_eq!(crate::output::exit_code_for_error(&error), 3);
+}
+
+#[test]
 fn api_error_display_conflict_has_no_prefix() {
     // Unlike Auth/NotFound (sentence fragments that get a prefix added),
     // Conflict messages are written whole, to be read by an operator as-is.
